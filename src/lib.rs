@@ -1,3 +1,4 @@
+pub mod caip;
 pub mod gaszip;
 pub mod hyperlane;
 pub mod stargate;

@@ -4,6 +4,7 @@ use reqwest::Client;
 use serde::Deserialize;
 
 use crate::BridgeError;
+use crate::caip;
 use crate::types::{ChainInfo, TokenInfo};
 
 const BASE_URL: &str = "https://transfer.layerzero-api.com/v1";
@@ -48,12 +49,14 @@ struct ApiToken {
     name: String,
 }
 
-fn caip2_namespace(chain_type: &str) -> &str {
+/// Build CAIP-2 per namespace. Stargate API uses numeric chainId for all;
+/// we map to correct refs for solana/starknet per CAIP-2 spec.
+fn caip2_for_chain(chain_type: &str, chain_key: &str, chain_id: u64) -> String {
     match chain_type {
-        "EVM" => "eip155",
-        "SOLANA" => "solana",
-        "STARKNET" => "starknet",
-        _ => "unknown",
+        "EVM" => caip::caip2_eip155(chain_id),
+        "SOLANA" => caip::caip2_solana(caip::SOLANA_MAINNET_REF),
+        "STARKNET" => caip::caip2_starknet(caip::STARKNET_MAIN_REF),
+        _ => format!("unknown:{chain_key}"),
     }
 }
 
@@ -74,9 +77,9 @@ pub async fn chains() -> Result<Vec<ChainInfo>, BridgeError> {
     Ok(api_chains
         .into_iter()
         .map(|c| {
-            let ns = caip2_namespace(&c.chain_type);
+            let caip2 = caip2_for_chain(&c.chain_type, &c.chain_key, c.chain_id);
             ChainInfo {
-                caip2: format!("{ns}:{}", c.chain_id),
+                caip2,
                 chain_id: c.chain_id,
                 name: c.name,
             }
@@ -85,8 +88,7 @@ pub async fn chains() -> Result<Vec<ChainInfo>, BridgeError> {
 }
 
 pub async fn tokens() -> Result<Vec<TokenInfo>, BridgeError> {
-    let (api_chains, api_tokens) =
-        tokio::try_join!(fetch_chains_raw(), fetch_tokens_raw())?;
+    let (api_chains, api_tokens) = tokio::try_join!(fetch_chains_raw(), fetch_tokens_raw())?;
 
     let chain_map: HashMap<&str, &ApiChain> = api_chains
         .iter()
@@ -98,9 +100,9 @@ pub async fn tokens() -> Result<Vec<TokenInfo>, BridgeError> {
         .filter(|t| t.is_supported)
         .filter_map(|t| {
             let chain = chain_map.get(t.chain_key.as_str())?;
-            let ns = caip2_namespace(&chain.chain_type);
+            let caip2 = caip2_for_chain(&chain.chain_type, &chain.chain_key, chain.chain_id);
             Some(TokenInfo {
-                caip10: format!("{ns}:{}:{}", chain.chain_id, t.address),
+                caip10: caip::caip10(&caip2, &t.address),
                 chain_id: chain.chain_id,
                 address: t.address,
                 symbol: t.symbol,

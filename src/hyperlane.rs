@@ -4,9 +4,11 @@ use reqwest::Client;
 use serde::Deserialize;
 
 use crate::BridgeError;
+use crate::caip;
 use crate::types::{ChainInfo, TokenInfo};
 
-const REGISTRY_BASE: &str = "https://raw.githubusercontent.com/hyperlane-xyz/hyperlane-registry/main";
+const REGISTRY_BASE: &str =
+    "https://raw.githubusercontent.com/hyperlane-xyz/hyperlane-registry/main";
 const GITHUB_API: &str = "https://api.github.com/repos/hyperlane-xyz/hyperlane-registry";
 
 fn client() -> Result<Client, BridgeError> {
@@ -29,13 +31,48 @@ fn client() -> Result<Client, BridgeError> {
 
 #[derive(Deserialize)]
 struct ChainMetadata {
-    chain_id: Option<u64>,
-    #[serde(rename = "chainId")]
-    chain_id_alt: Option<u64>,
+    #[serde(rename = "chainId", deserialize_with = "deser_chain_id")]
+    chain_id: Option<ChainId>,
+    #[serde(rename = "domainId")]
+    domain_id: Option<u64>,
     name: Option<String>,
     #[serde(rename = "displayName")]
     display_name: Option<String>,
     protocol: Option<String>,
+}
+
+/// ChainId from metadata: u64 for EVM, or hex string for Starknet (e.g. "0x534e5f4d41494e").
+#[derive(Clone)]
+enum ChainId {
+    U64(u64),
+    HexString(String),
+}
+
+fn deser_chain_id<'de, D>(deserializer: D) -> Result<Option<ChainId>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum ChainIdValue {
+        U64(u64),
+        String(String),
+    }
+    let opt = Option::<ChainIdValue>::deserialize(deserializer)?;
+    Ok(opt.map(|v| match v {
+        ChainIdValue::U64(n) => ChainId::U64(n),
+        ChainIdValue::String(s) => ChainId::HexString(s),
+    }))
+}
+
+/// Decode Starknet hex chainId (e.g. "0x534e5f4d41494e") to string ("SN_MAIN").
+fn starknet_hex_to_ref(hex: &str) -> Option<String> {
+    let s = hex.strip_prefix("0x")?;
+    let bytes = (0..s.len())
+        .step_by(2)
+        .filter_map(|i| u8::from_str_radix(s.get(i..i + 2)?, 16).ok())
+        .collect::<Vec<_>>();
+    String::from_utf8(bytes).ok()
 }
 
 #[derive(Deserialize)]
@@ -54,21 +91,51 @@ struct WarpToken {
     name: Option<String>,
 }
 
-fn chain_id(meta: &ChainMetadata) -> Option<u64> {
-    meta.chain_id.or(meta.chain_id_alt)
-}
-
-fn caip2_namespace(protocol: &str) -> &str {
-    match protocol.to_lowercase().as_str() {
-        "ethereum" | "evm" => "eip155",
-        "solana" => "solana",
-        "starknet" => "starknet",
-        _ => "eip155",
+fn chain_id_u64(meta: &ChainMetadata) -> Option<u64> {
+    match &meta.chain_id {
+        Some(ChainId::U64(n)) => Some(*n),
+        _ => None,
     }
 }
 
-async fn fetch_chains_raw(
-) -> Result<(Vec<ChainInfo>, HashMap<String, (u64, &'static str)>), BridgeError> {
+/// Build CAIP-2 from chain name and metadata. Per namespace spec.
+fn caip2_for_chain(chain_name: &str, meta: &ChainMetadata) -> Option<String> {
+    let protocol = meta
+        .protocol
+        .as_deref()
+        .unwrap_or("ethereum")
+        .to_lowercase();
+    match protocol.as_str() {
+        "ethereum" | "evm" => {
+            let id = chain_id_u64(meta)?;
+            Some(caip::caip2_eip155(id))
+        }
+        "sealevel" => {
+            let ref_ = match chain_name.to_lowercase().as_str() {
+                "solanamainnet" => caip::SOLANA_MAINNET_REF,
+                "solanadevnet" => caip::SOLANA_DEVNET_REF,
+                "solanatestnet" => caip::SOLANA_TESTNET_REF,
+                _ => return None,
+            };
+            Some(caip::caip2_solana(ref_))
+        }
+        "starknet" => {
+            let ref_ = match &meta.chain_id {
+                Some(ChainId::HexString(hex)) => starknet_hex_to_ref(hex)?.into(),
+                _ => match chain_name.to_lowercase().as_str() {
+                    "starknet" => caip::STARKNET_MAIN_REF.to_string(),
+                    "starknetsepolia" => caip::STARKNET_SEPOLIA_REF.to_string(),
+                    _ => return None,
+                },
+            };
+            Some(caip::caip2_starknet(&ref_))
+        }
+        _ => None,
+    }
+}
+
+async fn fetch_chains_raw() -> Result<(Vec<ChainInfo>, HashMap<String, (u64, String)>), BridgeError>
+{
     let client = client()?;
 
     let chain_resp = client
@@ -83,8 +150,8 @@ async fn fetch_chains_raw(
             body: chain_text.chars().take(500).collect(),
         });
     }
-    let chain_dirs: Vec<serde_json::Value> = serde_json::from_str(&chain_text)
-        .map_err(|_| BridgeError::ApiError {
+    let chain_dirs: Vec<serde_json::Value> =
+        serde_json::from_str(&chain_text).map_err(|_| BridgeError::ApiError {
             status: chain_status.as_u16(),
             body: chain_text.chars().take(500).collect(),
         })?;
@@ -117,38 +184,32 @@ async fn fetch_chains_raw(
                 let url = format!("{REGISTRY_BASE}/chains/{name}/metadata.yaml");
                 let text = client.get(&url).send().await.ok()?.text().await.ok()?;
                 let meta: ChainMetadata = serde_yaml::from_str(&text).ok()?;
-                let chain_id = chain_id(&meta)?;
-                let protocol = meta.protocol.unwrap_or_else(|| "ethereum".to_string());
-                let ns = caip2_namespace(&protocol);
+                let caip2 = caip2_for_chain(&name, &meta)?;
+                let chain_id = chain_id_u64(&meta).or(meta.domain_id).unwrap_or(0);
                 let display = meta
                     .display_name
                     .or(meta.name)
                     .unwrap_or_else(|| name.clone());
-                Some((ChainInfo {
-                    caip2: format!("{ns}:{chain_id}"),
-                    chain_id,
-                    name: display,
-                }, name))
+                Some((
+                    ChainInfo {
+                        caip2: caip2.clone(),
+                        chain_id,
+                        name: display,
+                    },
+                    name,
+                    caip2,
+                ))
             }
         })
         .collect();
 
     let results = futures::future::join_all(futures).await;
-    let chains_with_keys: Vec<(ChainInfo, String)> =
+    let chains_with_keys: Vec<(ChainInfo, String, String)> =
         results.into_iter().filter_map(|r| r).collect();
-    let chains: Vec<ChainInfo> = chains_with_keys.iter().map(|(c, _)| c.clone()).collect();
-    let chain_map: HashMap<String, (u64, &'static str)> = chains_with_keys
+    let chains: Vec<ChainInfo> = chains_with_keys.iter().map(|(c, _, _)| c.clone()).collect();
+    let chain_map: HashMap<String, (u64, String)> = chains_with_keys
         .iter()
-        .map(|(c, key)| {
-            let ns = if c.caip2.starts_with("eip155") {
-                "eip155"
-            } else if c.caip2.starts_with("solana") {
-                "solana"
-            } else {
-                "unknown"
-            };
-            (key.to_lowercase(), (c.chain_id, ns))
-        })
+        .map(|(c, key, caip2)| (key.to_lowercase(), (c.chain_id, caip2.clone())))
         .collect();
     Ok((chains, chain_map))
 }
@@ -169,8 +230,8 @@ async fn fetch_tokens_raw() -> Result<Vec<TokenInfo>, BridgeError> {
             body: text.chars().take(500).collect(),
         });
     }
-    let route_dirs: Vec<serde_json::Value> = serde_json::from_str(&text)
-        .map_err(|_| BridgeError::ApiError {
+    let route_dirs: Vec<serde_json::Value> =
+        serde_json::from_str(&text).map_err(|_| BridgeError::ApiError {
             status: status.as_u16(),
             body: text.chars().take(500).collect(),
         })?;
@@ -218,12 +279,11 @@ async fn fetch_tokens_raw() -> Result<Vec<TokenInfo>, BridgeError> {
         })
         .collect();
 
-    let route_files: Vec<(String, Vec<String>)> =
-        futures::future::join_all(config_fetches)
-            .await
-            .into_iter()
-            .filter_map(|r| r)
-            .collect();
+    let route_files: Vec<(String, Vec<String>)> = futures::future::join_all(config_fetches)
+        .await
+        .into_iter()
+        .filter_map(|r| r)
+        .collect();
 
     let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(10));
     let config_fetches: Vec<_> = route_files
@@ -238,9 +298,8 @@ async fn fetch_tokens_raw() -> Result<Vec<TokenInfo>, BridgeError> {
             let sem = semaphore.clone();
             async move {
                 let _permit = sem.acquire().await.ok()?;
-                let url = format!(
-                    "{REGISTRY_BASE}/deployments/warp_routes/{route_name}/{config_file}"
-                );
+                let url =
+                    format!("{REGISTRY_BASE}/deployments/warp_routes/{route_name}/{config_file}");
                 let text = client.get(&url).send().await.ok()?.text().await.ok()?;
                 let config: WarpConfig = serde_yaml::from_str(&text).ok()?;
                 Some((route_name, config.tokens?))
@@ -253,18 +312,20 @@ async fn fetch_tokens_raw() -> Result<Vec<TokenInfo>, BridgeError> {
     let mut seen: HashSet<(String, String)> = HashSet::new();
     let mut tokens = Vec::new();
     for opt in configs {
-        let Some((route_name, warp_tokens)) = opt else { continue };
+        let Some((route_name, warp_tokens)) = opt else {
+            continue;
+        };
         for t in warp_tokens {
             let key = (t.chain_name.to_lowercase(), t.address.to_lowercase());
             if !seen.insert(key) {
                 continue;
             }
-            let Some(&(chain_id, ns)) = chain_map.get(&t.chain_name.to_lowercase()) else {
+            let Some((chain_id, caip2)) = chain_map.get(&t.chain_name.to_lowercase()) else {
                 continue;
             };
             tokens.push(TokenInfo {
-                caip10: format!("{ns}:{chain_id}:{}", t.address),
-                chain_id,
+                caip10: caip::caip10(caip2, &t.address),
+                chain_id: *chain_id,
                 address: t.address,
                 symbol: t.symbol.unwrap_or_else(|| route_name.clone()),
                 name: t.name.unwrap_or_else(|| route_name.clone()),

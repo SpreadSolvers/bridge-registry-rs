@@ -7,6 +7,7 @@ use reqwest::Client;
 use serde::Deserialize;
 
 use crate::BridgeError;
+use crate::caip;
 use crate::types::{ChainInfo, TokenInfo};
 
 const BASE_URL: &str = "https://backend.gas.zip/v2";
@@ -44,7 +45,7 @@ pub async fn chains() -> Result<Vec<ChainInfo>, BridgeError> {
     Ok(api_chains
         .into_iter()
         .map(|c| ChainInfo {
-            caip2: format!("eip155:{}", c.chain),
+            caip2: caip::caip2_eip155(c.chain),
             chain_id: c.chain,
             name: c.name.clone(),
         })
@@ -58,7 +59,7 @@ pub async fn tokens() -> Result<Vec<TokenInfo>, BridgeError> {
         .map(|c| {
             let symbol = c.symbol.clone().unwrap_or_else(|| "NATIVE".to_string());
             TokenInfo {
-                caip10: format!("eip155:{}:{}", c.chain, NATIVE_TOKEN_ADDRESS),
+                caip10: caip::caip10(&caip::caip2_eip155(c.chain), NATIVE_TOKEN_ADDRESS),
                 chain_id: c.chain,
                 address: NATIVE_TOKEN_ADDRESS.to_string(),
                 symbol: symbol.clone(),

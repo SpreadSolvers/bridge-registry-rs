@@ -28,6 +28,9 @@ enum Commands {
     Bridges {
         /// EVM chain ID (e.g. 42161)
         chain_id: u64,
+        /// CAIP-2 namespace (default: eip155). Other namespaces not supported yet.
+        #[arg(long, default_value = "eip155")]
+        namespace: String,
     },
 }
 
@@ -51,11 +54,21 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             let names: Vec<&str> = ALL_BRIDGES.iter().map(|b| b.name()).collect();
             println!("{}", serde_json::to_string_pretty(&names)?);
         }
-        Commands::Bridges { chain_id } => {
+        Commands::Bridges {
+            chain_id,
+            namespace,
+        } => {
+            if namespace != "eip155" {
+                return Err(format!(
+                    "namespace '{namespace}' is not supported yet; only eip155 is implemented"
+                )
+                .into());
+            }
+            let caip2 = format!("eip155:{chain_id}");
             let mut supporting = Vec::new();
             for &bridge in ALL_BRIDGES {
                 let chains = bridge.chains().await?;
-                if chains.iter().any(|c| c.chain_id == chain_id) {
+                if chains.iter().any(|c| c.caip2 == caip2) {
                     supporting.push(bridge.name());
                 }
             }
@@ -67,7 +80,7 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
 
 #[tokio::main]
 async fn main() {
-	dotenv::dotenv().ok();
+    dotenv::dotenv().ok();
     let cli = Cli::parse();
     if let Err(e) = run(cli).await {
         eprintln!("Error: {e}");
