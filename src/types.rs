@@ -11,7 +11,6 @@ pub struct ChainInfo {
 pub struct TokenInfo {
     pub caip10: String,
     pub chain_id: u64,
-    pub chain_key: String,
     pub address: String,
     pub symbol: String,
     pub name: String,

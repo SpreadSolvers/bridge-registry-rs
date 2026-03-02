@@ -102,7 +102,6 @@ pub async fn tokens() -> Result<Vec<TokenInfo>, BridgeError> {
             Some(TokenInfo {
                 caip10: format!("{ns}:{}:{}", chain.chain_id, t.address),
                 chain_id: chain.chain_id,
-                chain_key: t.chain_key,
                 address: t.address,
                 symbol: t.symbol,
                 name: t.name,

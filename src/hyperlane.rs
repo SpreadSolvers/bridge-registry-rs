@@ -265,7 +265,6 @@ async fn fetch_tokens_raw() -> Result<Vec<TokenInfo>, BridgeError> {
             tokens.push(TokenInfo {
                 caip10: format!("{ns}:{chain_id}:{}", t.address),
                 chain_id,
-                chain_key: t.chain_name.clone(),
                 address: t.address,
                 symbol: t.symbol.unwrap_or_else(|| route_name.clone()),
                 name: t.name.unwrap_or_else(|| route_name.clone()),
