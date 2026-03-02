@@ -1,0 +1,56 @@
+---
+description: CAIP-2 and CAIP-10 standards for chain and account identifiers
+globs: src/**/*.rs
+alwaysApply: false
+---
+
+# CAIP-2 and CAIP-10 Standards
+
+Use chain-agnostic identifiers per [CAIP-2](https://standards.chainagnostic.org/CAIPs/caip-2) and [CAIP-10](https://standards.chainagnostic.org/CAIPs/caip-10). **The reference format depends on the namespace—do not assume numeric chain IDs for all chains.**
+
+## CAIP-2 (Blockchain ID)
+
+Format: `namespace:reference`
+
+- **namespace**: `[-a-z0-9]{3,8}`
+- **reference**: `[-_a-zA-Z0-9]{1,32}` — semantics are namespace-specific
+
+## CAIP-10 (Account ID)
+
+Format: `chain_id:account_address`
+
+- **chain_id**: Valid CAIP-2 string
+- **account_address**: `[-.%a-zA-Z0-9]{1,128}` (chain-specific format)
+
+## Namespace-Specific References
+
+| Namespace | Reference Type                             | Examples                                                                             |
+| --------- | ------------------------------------------ | ------------------------------------------------------------------------------------ |
+| eip155    | u64 chain ID                               | `eip155:1`, `eip155:42161`                                                           |
+| solana    | First 32 chars of genesis hash (Base58btc) | `solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp`, `solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1` |
+| starknet  | String identifier                          | `starknet:SN_MAIN`, `starknet:SN_GOERLI`                                             |
+| sui       | Network name                               | `sui:mainnet`, `sui:testnet`, `sui:devnet`                                           |
+| tvm       | Integer global_id                          | `tvm:42`, `tvm:-239`                                                                 |
+
+## Correct vs Incorrect
+
+```rust
+// ❌ WRONG - numeric for Solana/Starknet
+caip2: format!("solana:{}", chain_id),   // chain_id is u64
+caip2: format!("starknet:{}", chain_id),
+
+// ✅ CORRECT
+caip2: format!("solana:{}", genesis_hash_32_chars),
+caip2: format!("starknet:{}", "SN_MAIN"),
+caip2: format!("eip155:{}", chain_id),
+caip2: format!("sui:mainnet"),
+caip2: format!("tvm:{}", global_id),
+```
+
+## Resolution Methods
+
+- **Solana**: RPC `getGenesisHash`, truncate result to first 32 chars. See [Solana namespace](https://namespaces.chainagnostic.org/solana/caip2).
+- **Starknet**: RPC `starknet_chainId`, decode hex to string (e.g. `SN_MAIN`). See [Starknet namespace](https://namespaces.chainagnostic.org/starknet/caip2).
+- **Sui**: Use `mainnet`, `testnet`, or `devnet`; RPC `suix_getChainIdentifier` for verification. See [Sui namespace](https://namespaces.chainagnostic.org/sui/caip2).
+- **TVM**: GraphQL `blocks.global_id` (integer). See [TVM namespace](https://namespaces.chainagnostic.org/tvm/caip2).
+- **eip155**: Use numeric chain ID from EIP-155.
