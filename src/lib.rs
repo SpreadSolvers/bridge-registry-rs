@@ -1,3 +1,4 @@
+pub mod gaszip;
 pub mod hyperlane;
 pub mod stargate;
 pub mod types;
@@ -6,11 +7,12 @@ use types::{ChainInfo, TokenInfo};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Bridge {
+    GasZip,
     Hyperlane,
     Stargate,
 }
 
-pub const ALL_BRIDGES: &[Bridge] = &[Bridge::Hyperlane, Bridge::Stargate];
+pub const ALL_BRIDGES: &[Bridge] = &[Bridge::GasZip, Bridge::Hyperlane, Bridge::Stargate];
 
 impl std::fmt::Display for Bridge {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -42,6 +44,7 @@ pub enum BridgeError {
 impl Bridge {
     pub fn name(&self) -> &'static str {
         match self {
+            Bridge::GasZip => "gaszip",
             Bridge::Hyperlane => "hyperlane",
             Bridge::Stargate => "stargate",
         }
@@ -49,6 +52,7 @@ impl Bridge {
 
     pub fn from_name(name: &str) -> Option<Bridge> {
         match name.to_lowercase().as_str() {
+            "gaszip" | "gas.zip" => Some(Bridge::GasZip),
             "hyperlane" => Some(Bridge::Hyperlane),
             "stargate" => Some(Bridge::Stargate),
             _ => None,
@@ -57,6 +61,7 @@ impl Bridge {
 
     pub async fn chains(&self) -> Result<Vec<ChainInfo>, BridgeError> {
         match self {
+            Bridge::GasZip => gaszip::chains().await,
             Bridge::Hyperlane => hyperlane::chains().await,
             Bridge::Stargate => stargate::chains().await,
         }
@@ -64,6 +69,7 @@ impl Bridge {
 
     pub async fn tokens(&self) -> Result<Vec<TokenInfo>, BridgeError> {
         match self {
+            Bridge::GasZip => gaszip::tokens().await,
             Bridge::Hyperlane => hyperlane::tokens().await,
             Bridge::Stargate => stargate::tokens().await,
         }
