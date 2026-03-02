@@ -67,7 +67,8 @@ fn caip2_namespace(protocol: &str) -> &str {
     }
 }
 
-async fn fetch_chains_raw() -> Result<Vec<ChainInfo>, BridgeError> {
+async fn fetch_chains_raw(
+) -> Result<(Vec<ChainInfo>, HashMap<String, (u64, &'static str)>), BridgeError> {
     let client = client()?;
 
     let chain_resp = client
@@ -123,29 +124,22 @@ async fn fetch_chains_raw() -> Result<Vec<ChainInfo>, BridgeError> {
                     .display_name
                     .or(meta.name)
                     .unwrap_or_else(|| name.clone());
-                Some(ChainInfo {
+                Some((ChainInfo {
                     caip2: format!("{ns}:{chain_id}"),
                     chain_id,
                     name: display,
-                    chain_key: Some(name),
-                })
+                }, name))
             }
         })
         .collect();
 
     let results = futures::future::join_all(futures).await;
-    let chains: Vec<ChainInfo> = results.into_iter().filter_map(|r| r).collect();
-    Ok(chains)
-}
-
-async fn fetch_tokens_raw() -> Result<Vec<TokenInfo>, BridgeError> {
-    let client = std::sync::Arc::new(client()?);
-
-    let chains = fetch_chains_raw().await?;
-    let chain_map: HashMap<String, (u64, &'static str)> = chains
+    let chains_with_keys: Vec<(ChainInfo, String)> =
+        results.into_iter().filter_map(|r| r).collect();
+    let chains: Vec<ChainInfo> = chains_with_keys.iter().map(|(c, _)| c.clone()).collect();
+    let chain_map: HashMap<String, (u64, &'static str)> = chains_with_keys
         .iter()
-        .filter_map(|c| {
-            let key = c.chain_key.as_ref()?.to_lowercase();
+        .map(|(c, key)| {
             let ns = if c.caip2.starts_with("eip155") {
                 "eip155"
             } else if c.caip2.starts_with("solana") {
@@ -153,9 +147,15 @@ async fn fetch_tokens_raw() -> Result<Vec<TokenInfo>, BridgeError> {
             } else {
                 "unknown"
             };
-            Some((key, (c.chain_id, ns)))
+            (key.to_lowercase(), (c.chain_id, ns))
         })
         .collect();
+    Ok((chains, chain_map))
+}
+
+async fn fetch_tokens_raw() -> Result<Vec<TokenInfo>, BridgeError> {
+    let client = std::sync::Arc::new(client()?);
+    let (_chains, chain_map) = fetch_chains_raw().await?;
 
     let resp = client
         .get(format!("{GITHUB_API}/contents/deployments/warp_routes"))
@@ -277,7 +277,8 @@ async fn fetch_tokens_raw() -> Result<Vec<TokenInfo>, BridgeError> {
 }
 
 pub async fn chains() -> Result<Vec<ChainInfo>, BridgeError> {
-    fetch_chains_raw().await
+    let (chains, _) = fetch_chains_raw().await?;
+    Ok(chains)
 }
 
 pub async fn tokens() -> Result<Vec<TokenInfo>, BridgeError> {

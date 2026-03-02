@@ -79,7 +79,6 @@ pub async fn chains() -> Result<Vec<ChainInfo>, BridgeError> {
                 caip2: format!("{ns}:{}", c.chain_id),
                 chain_id: c.chain_id,
                 name: c.name,
-                chain_key: Some(c.chain_key),
             }
         })
         .collect())

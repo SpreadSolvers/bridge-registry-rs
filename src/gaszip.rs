@@ -47,7 +47,6 @@ pub async fn chains() -> Result<Vec<ChainInfo>, BridgeError> {
             caip2: format!("eip155:{}", c.chain),
             chain_id: c.chain,
             name: c.name.clone(),
-            chain_key: Some(c.chain.to_string()),
         })
         .collect())
 }
