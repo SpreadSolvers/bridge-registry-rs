@@ -64,11 +64,11 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 )
                 .into());
             }
-            let caip2 = format!("eip155:{chain_id}");
+            let chain_id_str = format!("eip155:{chain_id}");
             let mut supporting = Vec::new();
             for &bridge in ALL_BRIDGES {
                 let chains = bridge.chains().await?;
-                if chains.iter().any(|c| c.caip2 == caip2) {
+                if chains.iter().any(|c| c.id == chain_id_str) {
                     supporting.push(bridge.name());
                 }
             }

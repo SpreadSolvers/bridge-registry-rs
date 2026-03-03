@@ -45,7 +45,7 @@ fn test_bridges_then_tokens_on_chain_37() {
             serde_json::from_str(&out).expect("tokens output must be JSON array");
         let on_chain: Vec<_> = tokens
             .iter()
-            .filter(|t| t.caip10.starts_with(&chain_prefix))
+            .filter(|t| t.id.starts_with(&chain_prefix))
             .collect();
         if !on_chain.is_empty() {
             any_have_tokens = true;
@@ -59,5 +59,5 @@ fn test_bridges_then_tokens_on_chain_37() {
 
 #[derive(serde::Deserialize)]
 struct TokenInfo {
-    caip10: String,
+    id: String,
 }

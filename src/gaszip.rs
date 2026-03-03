@@ -45,8 +45,7 @@ pub async fn chains() -> Result<Vec<ChainInfo>, BridgeError> {
     Ok(api_chains
         .into_iter()
         .map(|c| ChainInfo {
-            caip2: caip::caip2_eip155(c.chain),
-            chain_id: c.chain,
+            id: caip::caip2_eip155(c.chain),
             name: c.name.clone(),
         })
         .collect())
@@ -59,8 +58,7 @@ pub async fn tokens() -> Result<Vec<TokenInfo>, BridgeError> {
         .map(|c| {
             let symbol = c.symbol.clone().unwrap_or_else(|| "NATIVE".to_string());
             TokenInfo {
-                caip10: caip::caip10(&caip::caip2_eip155(c.chain), NATIVE_TOKEN_ADDRESS),
-                chain_id: c.chain,
+                id: caip::caip10(&caip::caip2_eip155(c.chain), NATIVE_TOKEN_ADDRESS),
                 address: NATIVE_TOKEN_ADDRESS.to_string(),
                 symbol: symbol.clone(),
                 name: format!("{} Native", c.name),

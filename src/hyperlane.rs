@@ -134,8 +134,7 @@ fn caip2_for_chain(chain_name: &str, meta: &ChainMetadata) -> Option<String> {
     }
 }
 
-async fn fetch_chains_raw() -> Result<(Vec<ChainInfo>, HashMap<String, (u64, String)>), BridgeError>
-{
+async fn fetch_chains_raw() -> Result<(Vec<ChainInfo>, HashMap<String, String>), BridgeError> {
     let client = client()?;
 
     let chain_resp = client
@@ -184,20 +183,18 @@ async fn fetch_chains_raw() -> Result<(Vec<ChainInfo>, HashMap<String, (u64, Str
                 let url = format!("{REGISTRY_BASE}/chains/{name}/metadata.yaml");
                 let text = client.get(&url).send().await.ok()?.text().await.ok()?;
                 let meta: ChainMetadata = serde_yaml::from_str(&text).ok()?;
-                let caip2 = caip2_for_chain(&name, &meta)?;
-                let chain_id = chain_id_u64(&meta).or(meta.domain_id).unwrap_or(0);
+                let id = caip2_for_chain(&name, &meta)?;
                 let display = meta
                     .display_name
                     .or(meta.name)
                     .unwrap_or_else(|| name.clone());
                 Some((
                     ChainInfo {
-                        caip2: caip2.clone(),
-                        chain_id,
+                        id: id.clone(),
                         name: display,
                     },
                     name,
-                    caip2,
+                    id,
                 ))
             }
         })
@@ -207,9 +204,9 @@ async fn fetch_chains_raw() -> Result<(Vec<ChainInfo>, HashMap<String, (u64, Str
     let chains_with_keys: Vec<(ChainInfo, String, String)> =
         results.into_iter().filter_map(|r| r).collect();
     let chains: Vec<ChainInfo> = chains_with_keys.iter().map(|(c, _, _)| c.clone()).collect();
-    let chain_map: HashMap<String, (u64, String)> = chains_with_keys
+    let chain_map: HashMap<String, String> = chains_with_keys
         .iter()
-        .map(|(c, key, caip2)| (key.to_lowercase(), (c.chain_id, caip2.clone())))
+        .map(|(_, key, id)| (key.to_lowercase(), id.clone()))
         .collect();
     Ok((chains, chain_map))
 }
@@ -239,7 +236,7 @@ async fn fetch_tokens_raw() -> Result<Vec<TokenInfo>, BridgeError> {
     let route_names: Vec<String> = route_dirs
         .into_iter()
         .filter_map(|v| {
-            let obj = v.as_object()?;
+            let obj: &serde_json::Map<String, serde_json::Value> = v.as_object()?;
             if obj.get("type")?.as_str()? == "dir" {
                 obj.get("name")?.as_str().map(String::from)
             } else {
@@ -320,12 +317,11 @@ async fn fetch_tokens_raw() -> Result<Vec<TokenInfo>, BridgeError> {
             if !seen.insert(key) {
                 continue;
             }
-            let Some((chain_id, caip2)) = chain_map.get(&t.chain_name.to_lowercase()) else {
+            let Some(chain_id) = chain_map.get(&t.chain_name.to_lowercase()) else {
                 continue;
             };
             tokens.push(TokenInfo {
-                caip10: caip::caip10(caip2, &t.address),
-                chain_id: *chain_id,
+                id: caip::caip10(chain_id, &t.address),
                 address: t.address,
                 symbol: t.symbol.unwrap_or_else(|| route_name.clone()),
                 name: t.name.unwrap_or_else(|| route_name.clone()),

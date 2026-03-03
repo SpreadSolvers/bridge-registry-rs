@@ -2,15 +2,15 @@ use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ChainInfo {
-    pub caip2: String,
-    pub chain_id: u64,
+    /// CAIP-2 chain ID (e.g. eip155:1, solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp)
+    pub id: String,
     pub name: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TokenInfo {
-    pub caip10: String,
-    pub chain_id: u64,
+    /// CAIP-10 account ID (e.g. eip155:1:0x...)
+    pub id: String,
     pub address: String,
     pub symbol: String,
     pub name: String,

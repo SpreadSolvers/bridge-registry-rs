@@ -77,10 +77,9 @@ pub async fn chains() -> Result<Vec<ChainInfo>, BridgeError> {
     Ok(api_chains
         .into_iter()
         .map(|c| {
-            let caip2 = caip2_for_chain(&c.chain_type, &c.chain_key, c.chain_id);
+            let id = caip2_for_chain(&c.chain_type, &c.chain_key, c.chain_id);
             ChainInfo {
-                caip2,
-                chain_id: c.chain_id,
+                id,
                 name: c.name,
             }
         })
@@ -100,10 +99,9 @@ pub async fn tokens() -> Result<Vec<TokenInfo>, BridgeError> {
         .filter(|t| t.is_supported)
         .filter_map(|t| {
             let chain = chain_map.get(t.chain_key.as_str())?;
-            let caip2 = caip2_for_chain(&chain.chain_type, &chain.chain_key, chain.chain_id);
+            let chain_id = caip2_for_chain(&chain.chain_type, &chain.chain_key, chain.chain_id);
             Some(TokenInfo {
-                caip10: caip::caip10(&caip2, &t.address),
-                chain_id: chain.chain_id,
+                id: caip::caip10(&chain_id, &t.address),
                 address: t.address,
                 symbol: t.symbol,
                 name: t.name,
