@@ -33,8 +33,6 @@ fn client() -> Result<Client, BridgeError> {
 struct ChainMetadata {
     #[serde(rename = "chainId", deserialize_with = "deser_chain_id")]
     chain_id: Option<ChainId>,
-    #[serde(rename = "domainId")]
-    domain_id: Option<u64>,
     name: Option<String>,
     #[serde(rename = "displayName")]
     display_name: Option<String>,
